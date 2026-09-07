@@ -1,0 +1,8 @@
+{
+  "bankenversand_root": "K:\\UIA_PK\\Privatkunden\\Vertriebs- und Produktmanagement\\Reporting\\Bankenversand",
+  "monatsordner_muster": "{JJJJ}\\{MM}_{MONAT}",
+  "versandmatrix": "versandmatrix.xlsx",
+  "matrix_blatt": "Versandmatrix",
+  "output_ordner": "output",
+  "match_schwelle": 0.85
+}
