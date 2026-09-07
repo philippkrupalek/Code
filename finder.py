@@ -91,13 +91,31 @@ def _dateien(ordner: Path) -> list[Path]:
 
 
 def suche_datei(muster: str, ordner: list[Path], schwelle: float) -> Treffer:
-    """Sucht in mehreren Ordnern: erst exakt, dann Wildcard, dann unscharf."""
-    alle: list[Path] = []
-    for o in ordner:
-        if o and o.is_dir():
-            alle.extend(_dateien(o))
+    """Sucht ordnerweise nach Prioritaet: erst Bankordner, dann Monatsordner.
+
+    Der erste Ordner mit einem brauchbaren Treffer gewinnt. Dadurch gilt eine
+    Datei, die absichtlich an zwei Stellen liegt (z. B. die Management Summary),
+    nicht als mehrdeutig.
+    """
+    vorhanden = [o for o in ordner if o and o.is_dir()]
+    if not vorhanden:
+        return Treffer(STATUS_FEHLT, detail="Ordner nicht erreichbar")
+
+    bester_fehltreffer = Treffer(STATUS_FEHLT, detail="nichts Passendes gefunden")
+
+    for o in vorhanden:
+        treffer = _suche_in_ordner(muster, _dateien(o), schwelle)
+        if treffer.status != STATUS_FEHLT:
+            return treffer
+        if treffer.score > bester_fehltreffer.score:
+            bester_fehltreffer = treffer
+
+    return bester_fehltreffer
+
+
+def _suche_in_ordner(muster: str, alle: list[Path], schwelle: float) -> Treffer:
     if not alle:
-        return Treffer(STATUS_FEHLT, detail="Ordner leer oder nicht erreichbar")
+        return Treffer(STATUS_FEHLT, detail="Ordner leer")
 
     ziel = normalisiere(muster)
 
@@ -105,7 +123,8 @@ def suche_datei(muster: str, ordner: list[Path], schwelle: float) -> Treffer:
     if len(exakt) == 1:
         return Treffer(STATUS_OK, pfad=exakt[0], score=1.0)
     if len(exakt) > 1:
-        return Treffer(STATUS_MEHRDEUTIG, kandidaten=exakt, detail="mehrere exakte Treffer")
+        return Treffer(STATUS_MEHRDEUTIG, kandidaten=exakt,
+                       detail="mehrere gleichnamige Dateien im selben Ordner")
 
     if "*" in muster or "?" in muster:
         wild = [p for p in alle if fnmatch.fnmatch(normalisiere(p.name), ziel)]
