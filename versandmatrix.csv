@@ -1,0 +1,48 @@
+﻿mail_id;bank;bank_key;empfaengergruppe;dateityp;dateimuster;pflicht;quelle;hinweis
+APO_STANDARD;Österreichische Ärzte- und Apothekerbank AG;APO;Verteiler_APO;Gesamtbank;Gesamtbank__APO__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+APO_STANDARD;Österreichische Ärzte- und Apothekerbank AG;APO;Verteiler_APO;Kommerzkunden;Kommerzkunden__APO__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+APO_STANDARD;Österreichische Ärzte- und Apothekerbank AG;APO;Verteiler_APO;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+APO_STANDARD;Österreichische Ärzte- und Apothekerbank AG;APO;Verteiler_APO;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_Ärzte- und Apothekerbank.xlsx;Ja;Kollege, Ablage Ordner;
+K_STANDARD;Volksbank Kärnten eG;K;Verteiler_K_Standard;Gesamtbank;Gesamtbank__K__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+K_STANDARD;Volksbank Kärnten eG;K;Verteiler_K_Standard;Bereich;Bereich_1__K__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+K_STANDARD;Volksbank Kärnten eG;K;Verteiler_K_Standard;Bereich;Bereich_2__K__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+K_STANDARD;Volksbank Kärnten eG;K;Verteiler_K_Standard;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+K_STANDARD;Volksbank Kärnten eG;K;Verteiler_K_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Kärnten.xlsx;Ja;Kollege, Ablage Ordner;
+K_BD1;Volksbank Kärnten eG;K;Verteiler_K_BD1;BD1 Details;BD1_Details__K__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);Eigene Mail, anderer Empfängerkreis
+NOE_STANDARD;Volksbank Niederösterreich AG;NOE;Verteiler_NOE_Standard;Gesamtbank;Gesamtbank__NOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+NOE_STANDARD;Volksbank Niederösterreich AG;NOE;Verteiler_NOE_Standard;Regionen;Regionen_I-X__NOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);Eine Datei, nicht zehn
+NOE_STANDARD;Volksbank Niederösterreich AG;NOE;Verteiler_NOE_Standard;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+NOE_STANDARD;Volksbank Niederösterreich AG;NOE;Verteiler_NOE_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Niederösterreich.xlsx;Ja;Kollege, Ablage Ordner;
+NOE_NH;Volksbank Niederösterreich AG;NOE;Verteiler_NOE_NH;NH-Reporting;{STICHTAG} NH-Auswertung_NAKO__VB_NOE.xlsb;Ja;BO-Export (WebIntelligence);"Eigene Mail nur für NH-Reporting; .xlsb, nicht .xlsx"
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Gesamtbank;Gesamtbank__OOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Region;Region_1__OOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Region;Region_2__OOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Region;Region_3__OOE__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+OOE_STANDARD;Volksbank Oberösterreich AG;OOE;Verteiler_OOE_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Oberösterreich.xlsx;Ja;Kollege, Ablage Ordner;
+S_STANDARD;Volksbank Salzburg eG;S;Verteiler_S_Standard;Gesamtbank;Gesamtbank__S__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+S_STANDARD;Volksbank Salzburg eG;S;Verteiler_S_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Salzburg.xlsx;Ja;Kollege, Ablage Ordner;
+S_MGMT;Volksbank Salzburg eG;S;Verteiler_S_Management;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;Eigene Mail, nur Management Summary
+ST_STANDARD;Volksbank Steiermark AG;ST;Verteiler_ST_Standard;Gesamtbank;Gesamtbank__ST__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+ST_STANDARD;Volksbank Steiermark AG;ST;Verteiler_ST_Standard;Kommerzkunden;Kommerzkunden__ST__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+ST_STANDARD;Volksbank Steiermark AG;ST;Verteiler_ST_Standard;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+ST_DEPOTS;Volksbank Steiermark AG;ST;Verteiler_ST_Depots;Aufgelöste Depots;{STICHTAG} aufgelöste Depots_Tableau.xlsx;Ja;Tableau-Export manuell;Eigene Mail
+ST_CONTROLLING;Volksbank Steiermark AG;ST;Verteiler_ST_Controlling;Controllingdaten;Controllingdaten_komplett_STMK_{MM}_{JJJJ}.xlsx;Ja;Online-Download;
+ST_CONTROLLING;Volksbank Steiermark AG;ST;Verteiler_ST_Controlling;Rohdaten Ansparpläne;Rohdatenbericht Ansparpläne STMK NEU {STICHTAG}.xlsx;Ja;BO-Export (WebIntelligence);
+ST_CONTROLLING;Volksbank Steiermark AG;ST;Verteiler_ST_Controlling;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Steiermark.xlsx;Ja;Kollege, Ablage Ordner;
+T_STANDARD;Volksbank Tirol;T;Verteiler_T_Standard;Gesamtbank;Gesamtbank__T__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+T_STANDARD;Volksbank Tirol;T;Verteiler_T_Standard;Kommerzkunden;Kommerzkunden__T__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+T_STANDARD;Volksbank Tirol;T;Verteiler_T_Standard;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+T_STANDARD;Volksbank Tirol;T;Verteiler_T_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Tirol.xlsx;Ja;Kollege, Ablage Ordner;
+V_MGMT;Volksbank Vorarlberg e Gen;V;Verteiler_V_Management;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+V_KOMMERZ;Volksbank Vorarlberg e Gen;V;Verteiler_V_Kommerz;Kommerzkunden;Kommerzkunden__V__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);Eigene Mail, anderer Empfängerkreis
+W_MGMT;VOLKSBANK WIEN AG;W;Verteiler_W_Management;Management Summary (PDF);VB Wien AG Management Summary {MONAT} {JJJJ}.pdf;Ja;zentral, manuell erstellt;OFFEN: anderer Dateiname als in W_STANDARD - zwei Dateien oder Tippfehler?
+W_MGMT;VOLKSBANK WIEN AG;W;Verteiler_W_Management;Gesamtbank;Gesamtbank__W__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);
+W_MGMT;VOLKSBANK WIEN AG;W;Verteiler_W_Management;Management Summary;Management Summary {MONAT} {JJJJ}.xlsx;Ja;zentral, manuell erstellt;
+W_STANDARD;VOLKSBANK WIEN AG;W;Verteiler_W_Standard;Gesamtbank;Gesamtbank__W__{MM}-{JJJJ}.pdf;Ja;Marvin-Skript (Tableau-PDF);Gleiches PDF wie in W_MGMT
+W_STANDARD;VOLKSBANK WIEN AG;W;Verteiler_W_Standard;Sparplanreporting;Sparplanreporting {MONAT} {JJJJ}_VB Wien.xlsx;Ja;Kollege, Ablage Ordner;
+W_STANDARD;VOLKSBANK WIEN AG;W;Verteiler_W_Standard;Management Summary (PDF);Management Summary {MONAT} {JJJJ}.pdf;Ja;zentral, manuell erstellt;
+W_STANDARD;VOLKSBANK WIEN AG;W;Verteiler_W_Standard;12-MSV Depot;Volumensbetrachtung_VB Wien AG - 12-MSV und Veränderungen pro Depot ex ERGO Österreich Stand {MM}.{JJJJ}.xlsx;Ja;Online-Download;Dateiname aus Chat rekonstruiert - bitte am Original prüfen
+W_STANDARD;VOLKSBANK WIEN AG;W;Verteiler_W_Standard;12-MSV Filiale;Volumensbetrachtung_VB Wien AG 12-MSV nach Filiale inkl. ERGO_Österreich Stand {MM}.xlsx;Ja;Online-Download;Hier nur {MM} ohne Jahr - bitte am Original prüfen
+W_NH;VOLKSBANK WIEN AG;W;Verteiler_W_NH;Vertriebscontrolling;UIA Vertriebscontrolling Stand {WORKBOOK_DATUM};Ja;Marvin-Skript (Tableau-PDF);OFFEN: Anhang oder nur Betreff-Bezug? Endung unbekannt
+W_NH;VOLKSBANK WIEN AG;W;Verteiler_W_NH;NH-Reporting (Link);-- kein Anhang, Download-Link --;Ja;Online-Download;Datei zu gross fuer Mail: Link statt Anhang versenden
