@@ -1,0 +1,115 @@
+enum Bank {
+  W = "VOLKSBANK WIEN AG",
+  V = "Volksbank Vorarlberg e. Gen.",
+  T = "Volksbank Tirol AG",
+  ST = "Volksbank Steiermark AG",
+  S = "Volksbank Salzburg eG",
+  OO = "Volksbank Oberösterreich AG",
+  NOE = "Volksbank Niederösterreich AG",
+  K = "Volksbank Kärnten eG",
+  APO = "Österreichische Ärzte- und Apothekerbank AG",
+}
+
+/**
+ * Automates the creation of a bank-specific "Detailanalyse 12-MSV" workbook.
+ *
+ * The script:
+ * - keeps only the selected bank in the raw data sheet "RD",
+ * - refreshes all PivotTables (PivotCharts on d_Kundensicht, d_Filialsicht,
+ *   d_V-Vormonat follow automatically),
+ * - expands the selected bank on the "Übersicht" PivotTable,
+ * - deletes the raw data sheet "RD",
+ * - activates the "Übersicht" sheet.
+ *
+ * @param workbook The current workbook.
+ * @param bankKey Bank key. Valid values: [W, V, T, ST, S, OO, NOE, K, APO].
+ *
+ * @throws Error if the bankKey is invalid or required sheets/tables are missing.
+ */
+function main(
+  workbook: ExcelScript.Workbook,
+  bankKey: string
+): { bank: string } {
+  const bank = Bank[bankKey.toUpperCase() as keyof typeof Bank];
+
+  if (!bank) {
+    throw new Error(
+      `Invalid bank key: ${bankKey}.\nValid values are: [W, V, T, ST, S, OO, NOE, K, APO]`
+    );
+  }
+
+  // STEP 0: Activate "Übersicht" early.
+  // This avoids issues when deleting the active sheet later.
+  const overviewSheet = workbook.getWorksheet("Übersicht");
+
+  if (!overviewSheet) {
+    throw new Error(`Could not find worksheet "Übersicht".`);
+  }
+
+  overviewSheet.activate();
+
+  // STEP 1: Get raw data sheet "RD".
+  const rawSheet = workbook.getWorksheet("RD");
+
+  if (!rawSheet) {
+    throw new Error(`Could not find worksheet "RD".`);
+  }
+
+  const tables = rawSheet.getTables();
+
+  if (tables.length === 0) {
+    throw new Error(`Could not find a table on worksheet "RD".`);
+  }
+
+  const table = tables[0];
+
+  // STEP 2: Filter all banks except the selected bank.
+  const filteredBanks = Object.values(Bank).filter(b => b !== bank);
+
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .applyValuesFilter(filteredBanks);
+
+  // STEP 3: Delete all visible filtered rows, i.e. all non-selected banks.
+  rawSheet
+    .getRange("2:2")
+    .getExtendedRange(ExcelScript.KeyboardDirection.down)
+    .delete(ExcelScript.DeleteShiftDirection.up);
+
+  // STEP 4: Clear filter so the remaining selected bank is visible.
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .clear();
+
+  // STEP 5: Refresh all PivotTables (PivotCharts follow automatically).
+  workbook.getPivotTables().forEach(pivotTable => pivotTable.refresh());
+
+  // STEP 6: Expand the selected bank on "Übersicht" (Vermittlername -> Region).
+  overviewSheet.getPivotTables().forEach(pivotTable => {
+    try {
+      pivotTable
+        .getRowHierarchy("Vermittlername")
+        .getPivotField("Vermittlername")
+        .getItems()
+        .forEach(item => {
+          if (item.getName() === bank) {
+            item.setIsExpanded(true);
+          }
+        });
+    } catch (error) {
+      console.log(`Could not expand bank "${bank}" in PivotTable "${pivotTable.getName()}".`);
+    }
+  });
+
+  // STEP 7: Delete raw data sheet "RD" after refresh.
+  rawSheet.delete();
+
+  // STEP 8: Activate "Übersicht" as final sheet.
+  overviewSheet.activate();
+
+  return {
+    bank: bank
+  };
+}
