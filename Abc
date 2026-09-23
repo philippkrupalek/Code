@@ -1,0 +1,158 @@
+/**
+ * Detailanalyse 12-MSV – Aufbruch auf Einzelbankebene
+ *
+ * Blätter der Datei:
+ *   Übersicht | t_Kundensicht | d_Kundensicht | t_Filialsicht | d_Filialsicht |
+ *   t_V-Vormonat | d_V-Vormonat | RD (Rohdaten, A1:S1 = Kopfzeile, Tabelle "Tabelle1")
+ *
+ * Ablauf:
+ *   1. RD: alle Banken AUSSER der gewählten filtern und ENDGÜLTIG löschen
+ *   2. Filter entfernen -> nur noch die gewählte Bank in RD
+ *   3. Alle PivotTables aktualisieren (PivotCharts in d_-Blättern ziehen automatisch nach)
+ *   4. Berichtsfilter "Drittfonds Kz" = N in allen Pivots sicherstellen
+ *   5. Übersicht: Datenschnitt Vermittlername -> gewählte Bank, Datenschnitt Region -> alle
+ *   6. Übersicht aktivieren
+ *
+ * Parameter bankKey: W | V | T | ST | S | OO | NOE | K | APO
+ */
+
+enum Bank {
+  W = "VOLKSBANK WIEN AG",
+  V = "Volksbank Vorarlberg e. Gen.",
+  T = "Volksbank Tirol AG",
+  ST = "Volksbank Steiermark AG",
+  S = "Volksbank Salzburg eG",
+  OO = "Volksbank Oberösterreich AG",
+  NOE = "Volksbank Niederösterreich AG",
+  K = "Volksbank Kärnten eG",
+  APO = "Österreichische Ärzte- und Apothekerbank AG",
+}
+
+// Nur normale Arbeitsblätter prüfen. d_Kundensicht, d_Filialsicht und d_V-Vormonat sind
+// Diagrammblätter – Office Scripts kann darauf nicht zugreifen (getWorksheet wirft einen Fehler).
+// Die PivotCharts dort hängen an den Pivots und aktualisieren sich beim Pivot-Refresh automatisch.
+const SHEETS = [
+  "Übersicht",
+  "t_Kundensicht",
+  "t_Filialsicht",
+  "t_V-Vormonat",
+  "RD",
+];
+const RAW_SHEET = "RD";
+const OVERVIEW_SHEET = "Übersicht";
+const BANK_COLUMN = "Vermittlername";
+const DRITTFONDS_FIELD = "Drittfonds Kz";
+const DRITTFONDS_VALUE = "N";
+
+function main(
+  workbook: ExcelScript.Workbook,
+  bankKey: string
+): { bank: string; zeilen: number } {
+  // ---------- Bank prüfen ----------
+  const bank: string = Bank[(bankKey ?? "").trim().toUpperCase() as keyof typeof Bank];
+  if (!bank) {
+    throw new Error(
+      `Invalid bank key: ${bankKey}. Valid values are: [W, V, T, ST, S, OO, NOE, K, APO]`
+    );
+  }
+
+  // ---------- Arbeitsblätter vorhanden? (richtige Datei) ----------
+  SHEETS.forEach(name => {
+    if (!workbook.getWorksheet(name)) {
+      throw new Error(`Could not find worksheet: ${name}`);
+    }
+  });
+  const rdSheet = workbook.getWorksheet(RAW_SHEET);
+  const overviewSheet = workbook.getWorksheet(OVERVIEW_SHEET);
+
+  // ---------- STEP 1: RD – alle anderen Banken filtern und endgültig löschen ----------
+  const tables = rdSheet.getTables();
+  if (tables.length === 0) {
+    throw new Error(`Could not find a table on worksheet: ${RAW_SHEET}`);
+  }
+  const table = tables[0];
+  table.getAutoFilter().clearCriteria();
+
+  const bankColumn = table.getColumnByName(BANK_COLUMN);
+  if (!bankColumn) {
+    throw new Error(`Could not find column "${BANK_COLUMN}" in table on ${RAW_SHEET}`);
+  }
+
+  // Welche Vermittler stehen tatsächlich in den Rohdaten?
+  const values = bankColumn.getRangeBetweenHeaderAndTotal().getValues().map(r => String(r[0]));
+  const target = norm(bank);
+  const bankRows = values.filter(v => norm(v) === target).length;
+  if (bankRows === 0) {
+    throw new Error(`No rows found for "${bank}" in ${RAW_SHEET}. Nothing was deleted.`);
+  }
+
+  // Alle Werte außer der gewählten Bank (auch Namen, die nicht im Enum stehen)
+  const otherBanks = Array.from(new Set(values)).filter(v => norm(v) !== target);
+
+  if (otherBanks.length > 0) {
+    bankColumn.getFilter().applyValuesFilter(otherBanks);
+
+    // Sichtbare (= fremde) Zeilen löschen: Zeile 2 bis letzte Tabellenzeile
+    const firstRow = table.getRange().getRowIndex() + 2; // 1-basiert, erste Datenzeile
+    const lastRow = table.getRange().getRowIndex() + table.getRange().getRowCount(); // 1-basiert
+    rdSheet.getRange(`${firstRow}:${lastRow}`).delete(ExcelScript.DeleteShiftDirection.up);
+
+    table.getAutoFilter().clearCriteria();
+  }
+
+  // ---------- Kontrolle: nur noch die gewählte Bank in RD ----------
+  const remaining = bankColumn.getRangeBetweenHeaderAndTotal().getValues().map(r => norm(String(r[0])));
+  const foreign = remaining.filter(v => v !== target);
+  if (remaining.length !== bankRows || foreign.length > 0) {
+    throw new Error(
+      `Check failed on ${RAW_SHEET}: expected ${bankRows} rows of "${bank}", found ${remaining.length} rows (${foreign.length} of other banks).`
+    );
+  }
+
+  // ---------- STEP 2: Alles aktualisieren ----------
+  workbook.refreshAllDataConnections();
+  workbook.getPivotTables().forEach(pt => pt.refresh());
+
+  // ---------- STEP 3: Berichtsfilter Drittfonds Kz = N sicherstellen ----------
+  workbook.getPivotTables().forEach(pt => {
+    const filterHierarchy = pt.getFilterHierarchy(DRITTFONDS_FIELD);
+    if (!filterHierarchy) return;
+    try {
+      filterHierarchy
+        .getPivotField(DRITTFONDS_FIELD)
+        .applyFilter({ manualFilter: { selectedItems: [DRITTFONDS_VALUE] } });
+    } catch (e) {
+      console.log(`Pivot "${pt.getName()}" (${pt.getWorksheet().getName()}): Drittfonds-Filter nicht gesetzt – ${e}`);
+    }
+  });
+
+  // ---------- STEP 4: Datenschnitte in der Übersicht ----------
+  // Vermittlername -> nur gewählte Bank; Region (und alle anderen) -> Filter löschen
+  workbook.getSlicers().forEach(slicer => {
+    try {
+      slicer.clearFilters();
+      const match = slicer.getSlicerItems().find(item => norm(item.getName()) === target);
+      if (match) {
+        slicer.selectItems([match.getKey()]);
+      }
+    } catch (e) {
+      console.log(`Datenschnitt "${slicer.getName()}" nicht aktualisiert – ${e}`);
+    }
+  });
+
+  // ---------- STEP 5: Übersicht anzeigen ----------
+  overviewSheet.activate();
+  overviewSheet.getRange("A1").select();
+
+  console.log(`${bank}: ${bankRows} Zeilen in ${RAW_SHEET}, alle Pivots aktualisiert.`);
+
+  return {
+    bank: bank,
+    zeilen: bankRows,
+  };
+}
+
+/** Vergleichswert: getrimmt, Kleinbuchstaben, Mehrfach-Leerzeichen zusammengefasst */
+function norm(value: string): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
