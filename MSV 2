@@ -1,0 +1,235 @@
+enum Bank {
+  W = "VOLKSBANK WIEN AG",
+  V = "Volksbank Vorarlberg e. Gen.",
+  T = "Volksbank Tirol AG",
+  ST = "Volksbank Steiermark AG",
+  S = "Volksbank Salzburg eG",
+  OO = "Volksbank Oberösterreich AG",
+  NOE = "Volksbank Niederösterreich AG",
+  K = "Volksbank Kärnten eG",
+  APO = "Österreichische Ärzte- und Apothekerbank AG",
+}
+
+/**
+ * Automates the creation of a bank-specific "Detailanalyse 12-MSV" workbook.
+ *
+ * Workbook structure:
+ * - "Übersicht"      PivotTable Vermittlername / Region, slicers "Vermittlername" + "Region"
+ * - "t_Kundensicht"  PivotTable Kunde Berufsgruppe (12-MSV zu Vorjahr)
+ * - "d_Kundensicht"  chart sheet (PivotChart)
+ * - "t_Filialsicht"  PivotTable Filialbezeichnung Klarname (12-MSV zu Vorjahr)
+ * - "d_Filialsicht"  chart sheet (PivotChart)
+ * - "t_V-Vormonat"   PivotTable Kunde Berufsgruppe (12-MSV zu Vormonat)
+ * - "d_V-Vormonat"   chart sheet (PivotChart)
+ * - "RD"             raw data, table in A1:S1 ff.
+ * All PivotTables have the report filter "Drittfonds Kz" = N.
+ *
+ * The script:
+ * - keeps only the selected bank in the raw data sheet "RD",
+ * - refreshes all data connections / PivotTables (PivotCharts follow automatically),
+ * - makes sure the report filter "Drittfonds Kz" = N is still set on all PivotTables,
+ * - expands the selected bank on the "Übersicht" PivotTable (shows the regions),
+ * - selects the selected bank in the "Vermittlername" slicer and resets the "Region" slicer,
+ * - deletes the raw data sheet "RD",
+ * - activates the "Übersicht" sheet.
+ *
+ * @param workbook The current workbook.
+ * @param bankKey Bank key. Valid values: [W, V, T, ST, S, OO, NOE, K, APO].
+ *
+ * @throws Error if the bankKey is invalid or required sheets/tables are missing.
+ */
+function main(
+  workbook: ExcelScript.Workbook,
+  bankKey: string
+): { bank: string } {
+  const bank = Bank[bankKey.toUpperCase() as keyof typeof Bank];
+
+  if (!bank) {
+    throw new Error(
+      `Invalid bank key: ${bankKey}.\nValid values are: [W, V, T, ST, S, OO, NOE, K, APO]`
+    );
+  }
+
+  // STEP 0: Check the PivotTable sheets and activate "Übersicht" early.
+  // The d_ tabs are chart sheets and cannot be accessed via getWorksheet(),
+  // therefore only the normal worksheets are checked.
+  PIVOT_SHEETS.forEach(sheetName => {
+    const sheet = workbook.getWorksheet(sheetName);
+
+    if (!sheet) {
+      throw new Error(`Could not find worksheet "${sheetName}".`);
+    }
+
+    if (sheet.getPivotTables().length === 0) {
+      throw new Error(`Could not find a PivotTable on worksheet "${sheetName}".`);
+    }
+  });
+
+  const overviewSheet = workbook.getWorksheet("Übersicht");
+  overviewSheet.setVisibility(ExcelScript.SheetVisibility.visible);
+  overviewSheet.activate();
+
+  // STEP 1: Get raw data sheet "RD".
+  const rawSheet = workbook.getWorksheet("RD");
+
+  if (!rawSheet) {
+    throw new Error(`Could not find worksheet "RD".`);
+  }
+
+  const tables = rawSheet.getTables();
+
+  if (tables.length === 0) {
+    throw new Error(`Could not find a table on worksheet "RD".`);
+  }
+
+  const table = tables[0];
+
+  // STEP 2: Filter all banks except the selected bank.
+  const banks = Object.values(Bank);
+  const filteredBanks = banks.filter(b => b !== bank);
+
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .applyValuesFilter(filteredBanks);
+
+  // STEP 3: Delete all visible filtered rows, i.e. all non-selected banks.
+  // filter unwanted banks -> delete visible data rows -> selected bank remains.
+  rawSheet
+    .getRange("2:2")
+    .getExtendedRange(ExcelScript.KeyboardDirection.down)
+    .delete(ExcelScript.DeleteShiftDirection.up);
+
+  // STEP 4: Clear filter so the remaining selected bank is visible.
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .clear();
+
+  // STEP 5: Refresh all data connections and all PivotTables.
+  // The PivotCharts on d_Kundensicht, d_Filialsicht and d_V-Vormonat
+  // are linked to the PivotTables and update automatically.
+  workbook.refreshAllDataConnections();
+  workbook.getPivotTables().forEach(pivotTable => pivotTable.refresh());
+
+  // STEP 6: Make sure the report filter "Drittfonds Kz" = N is still set.
+  setDrittfondsFilter(workbook);
+
+  // STEP 7: Expand the selected bank on the "Übersicht" PivotTable (Vermittlername -> Region).
+  expandBankOnOverviewPivot(workbook, bank);
+
+  // STEP 8: "Übersicht" slicers: Vermittlername -> selected bank, Region -> all.
+  setOverviewSlicers(workbook, bank);
+
+  // STEP 9: Delete raw data sheet "RD" after refresh.
+  if (DELETE_RD) {
+    const rdSheetAfterRefresh = workbook.getWorksheet("RD");
+
+    if (rdSheetAfterRefresh) {
+      rdSheetAfterRefresh.delete();
+    }
+  }
+
+  // STEP 10: Activate "Übersicht" as final sheet.
+  // Note: In Power Automate this is best effort and may not always be persisted as start sheet.
+  overviewSheet.activate();
+  overviewSheet.getRange("A1").select();
+
+  return {
+    bank: bank
+  };
+}
+
+/** Normal worksheets with PivotTables (d_ tabs are chart sheets). */
+const PIVOT_SHEETS = ["Übersicht", "t_Kundensicht", "t_Filialsicht", "t_V-Vormonat"];
+
+/** Set to false if the raw data sheet "RD" should stay in the bank file. */
+const DELETE_RD = true;
+
+/**
+ * Sets the report filter "Drittfonds Kz" = N on all PivotTables of the PivotTable sheets.
+ */
+function setDrittfondsFilter(workbook: ExcelScript.Workbook) {
+  PIVOT_SHEETS.forEach(sheetName => {
+    workbook.getWorksheet(sheetName).getPivotTables().forEach(pivotTable => {
+      try {
+        const filterHierarchy = pivotTable.getFilterHierarchy("Drittfonds Kz");
+
+        if (!filterHierarchy) {
+          return;
+        }
+
+        filterHierarchy
+          .getPivotField("Drittfonds Kz")
+          .applyFilter({ manualFilter: { selectedItems: ["N"] } });
+      } catch (error) {
+        console.log(
+          `Could not set "Drittfonds Kz" = N in PivotTable "${pivotTable.getName()}" on "${sheetName}".`
+        );
+      }
+    });
+  });
+}
+
+/**
+ * Expands the selected bank item in the PivotTable on worksheet "Übersicht",
+ * so the next hierarchy level (Region) is shown under the selected Vermittlername.
+ */
+function expandBankOnOverviewPivot(
+  workbook: ExcelScript.Workbook,
+  bankName: string
+) {
+  const pivotTables = workbook.getWorksheet("Übersicht").getPivotTables();
+
+  pivotTables.forEach(pivotTable => {
+    try {
+      const rowHierarchy = pivotTable.getRowHierarchy("Vermittlername");
+
+      if (!rowHierarchy) {
+        return;
+      }
+
+      rowHierarchy
+        .getPivotField("Vermittlername")
+        .getItems()
+        .forEach(item => {
+          if (item.getName() === bankName) {
+            item.setIsExpanded(true);
+          }
+        });
+    } catch (error) {
+      console.log(
+        `Could not expand bank "${bankName}" in PivotTable "${pivotTable.getName()}".`
+      );
+    }
+  });
+}
+
+/**
+ * Slicers on "Übersicht":
+ * - "Vermittlername": only the selected bank is selected,
+ * - "Region" (and any other slicer): filter cleared, i.e. all regions of the bank.
+ *
+ * The Vermittlername slicer is recognized by containing the bank name as an item,
+ * so the internal slicer name does not matter.
+ */
+function setOverviewSlicers(
+  workbook: ExcelScript.Workbook,
+  bankName: string
+) {
+  workbook.getSlicers().forEach(slicer => {
+    try {
+      slicer.clearFilters();
+
+      const bankItem = slicer
+        .getSlicerItems()
+        .find(item => item.getName() === bankName);
+
+      if (bankItem) {
+        slicer.selectItems([bankItem.getKey()]);
+      }
+    } catch (error) {
+      console.log(`Could not update slicer "${slicer.getName()}".`);
+    }
+  });
+}
