@@ -1,0 +1,205 @@
+/**
+ * Detailanalyse 12-MSV – Aufbruch auf Einzelbankebene
+ *
+ * Ablauf (entspricht dem manuellen Vorgehen):
+ *   1. Im Blatt "RD" (Rohdaten, Spalten A–S) werden ALLE Zeilen gelöscht,
+ *      die NICHT zur gewählten Bank gehören (endgültig, nicht nur gefiltert).
+ *   2. Alle PivotTables (und damit alle PivotCharts) werden aktualisiert.
+ *   3. Datenschnitte (Vermittlername / Region) werden zurückgesetzt,
+ *      im Vermittlername-Datenschnitt wird die gewählte Bank ausgewählt.
+ *   4. "Übersicht" wird aktiviert, Arbeitsmappe wird geschützt.
+ *
+ * Aufruf (auch aus Power Automate, Aktion "Skript ausführen"):
+ *   bankKey = W | V | T | ST | S | OO | NOE | K | APO
+ *
+ * Rückgabe: { stichtag, bank, zeilen } – z. B. für den Dateinamen im Flow.
+ */
+
+enum Bank {
+  W = "VOLKSBANK WIEN AG",
+  V = "Volksbank Vorarlberg e. Gen.",
+  T = "Volksbank Tirol AG",
+  ST = "Volksbank Steiermark AG",
+
+  S = "Volksbank Salzburg eG",
+  OO = "Volksbank Oberösterreich AG",
+  NOE = "Volksbank Niederösterreich AG",
+  K = "Volksbank Kärnten eG",
+  APO = "Österreichische Ärzte- und Apothekerbank AG",
+}
+
+// ---------- Konfiguration ----------
+const RAW_SHEET = "RD";
+const OVERVIEW_SHEET = "Übersicht";
+const BANK_COLUMN = "Vermittlername";
+const DATE_COLUMN = "Stichtag";
+const HIDE_RAW_SHEET = true; // wie beim IF1-Skript: Rohdatenblatt am Ende ausblenden
+const PASSWORD = "Marvin2025!?!?";
+
+function main(
+  workbook: ExcelScript.Workbook,
+  bankKey: string
+): { stichtag: string; bank: string; zeilen: number } {
+  const key = (bankKey ?? "").trim().toUpperCase();
+  const bank: string = Bank[key as keyof typeof Bank];
+  if (!bank) {
+    throw new Error(
+      `Invalid bank key: ${bankKey}. Valid values are: [W, V, T, ST, S, OO, NOE, K, APO]`
+    );
+  }
+
+  // ---------- STEP 0: Vorprüfungen (bevor irgendetwas gelöscht wird) ----------
+  const protection = workbook.getProtection();
+  if (protection.getProtected()) {
+    // Mappenschutz verhindert Ein-/Ausblenden von Blättern -> temporär aufheben
+    protection.unprotect(PASSWORD);
+  }
+
+  const overviewSheet = workbook.getWorksheet(OVERVIEW_SHEET);
+  if (!overviewSheet) {
+    throw new Error(`Could not find worksheet: ${OVERVIEW_SHEET}`);
+  }
+
+  const rdSheet = workbook.getWorksheet(RAW_SHEET);
+  if (!rdSheet) {
+    throw new Error(`Could not find worksheet: ${RAW_SHEET}`);
+  }
+  if (rdSheet.getProtection().getProtected()) {
+    throw new Error(`Worksheet ${RAW_SHEET} is protected. Please remove sheet protection.`);
+  }
+
+  // Datenbereich bestimmen: bevorzugt Tabelle auf RD, sonst genutzter Bereich ab A1
+  const tables = rdSheet.getTables();
+  const table: ExcelScript.Table | undefined = tables.length > 0 ? tables[0] : undefined;
+  let dataRange: ExcelScript.Range;
+
+  if (table) {
+    table.getAutoFilter().clearCriteria();
+    dataRange = table.getRange();
+  } else {
+    const sheetFilter = rdSheet.getAutoFilter();
+    if (sheetFilter) {
+      sheetFilter.clearCriteria();
+    }
+    const used = rdSheet.getUsedRange(true);
+    if (!used) {
+      throw new Error(`Worksheet ${RAW_SHEET} is empty.`);
+    }
+    dataRange = used;
+  }
+
+  const headerRowIndex = dataRange.getRowIndex(); // 0-basiert, Kopfzeile
+  const dataRowCount = dataRange.getRowCount() - 1;
+  if (dataRowCount < 1) {
+    throw new Error(`No data rows found on worksheet ${RAW_SHEET}.`);
+  }
+
+  const headers = dataRange.getRow(0).getValues()[0].map(h => norm(h));
+  const bankCol = headers.indexOf(norm(BANK_COLUMN));
+  if (bankCol === -1) {
+    throw new Error(`Column "${BANK_COLUMN}" not found in header row of ${RAW_SHEET}.`);
+  }
+  const dateCol = headers.indexOf(norm(DATE_COLUMN));
+  if (dateCol === -1) {
+    throw new Error(`Column "${DATE_COLUMN}" not found in header row of ${RAW_SHEET}.`);
+  }
+
+  // ---------- STEP 1: Nach Vermittlername sortieren ----------
+  // Danach liegen alle Zeilen der Bank in EINEM zusammenhängenden Block
+  // -> es müssen max. 2 Blöcke gelöscht werden (darüber / darunter). Schnell und eindeutig.
+  if (table) {
+    table.getSort().apply([{ key: bankCol, ascending: true }]);
+  } else {
+    dataRange.getSort().apply([{ key: bankCol, ascending: true }], false, true);
+  }
+
+  const bankValues = dataRange.getColumn(bankCol).getValues(); // inkl. Kopfzeile an Index 0
+  const target = norm(bank);
+  let first = -1;
+  let last = -1;
+  for (let i = 1; i <= dataRowCount; i++) {
+    if (norm(bankValues[i][0]) === target) {
+      if (first === -1) first = i;
+      last = i;
+    }
+  }
+  if (first === -1) {
+    throw new Error(`No rows found for bank "${bank}" in ${RAW_SHEET}. Nothing was deleted.`);
+  }
+
+  // Stichtag VOR dem Löschen lesen (erste Zeile der Bank)
+  const stichtag = formatStichtag(dataRange.getCell(first, dateCol).getValue());
+  if (!stichtag) {
+    throw new Error(`Column "${DATE_COLUMN}" is empty for bank "${bank}". Could not read reporting date.`);
+  }
+
+  // ---------- STEP 2: Alle anderen Banken ENDGÜLTIG löschen ----------
+  // Sheet-Zeile (1-basiert) von Datenzeile i = headerRowIndex + i + 1
+  // Erst den unteren Block, dann den oberen (sonst verschieben sich die Indizes)
+  if (last < dataRowCount) {
+    const from = headerRowIndex + last + 2;
+    const to = headerRowIndex + dataRowCount + 1;
+    rdSheet.getRange(`${from}:${to}`).delete(ExcelScript.DeleteShiftDirection.up);
+  }
+  if (first > 1) {
+    const from = headerRowIndex + 2;
+    const to = headerRowIndex + first;
+    rdSheet.getRange(`${from}:${to}`).delete(ExcelScript.DeleteShiftDirection.up);
+  }
+  const remainingRows = last - first + 1;
+
+  // ---------- STEP 3: Alles aktualisieren (Pivots -> PivotCharts ziehen automatisch nach) ----------
+  workbook.refreshAllDataConnections();
+  workbook.getPivotTables().forEach(pt => pt.refresh());
+
+  // ---------- STEP 4: Datenschnitte zurücksetzen und Bank auswählen ----------
+  workbook.getSlicers().forEach(slicer => {
+    try {
+      slicer.clearFilters();
+      const match = slicer.getSlicerItems().find(item => norm(item.getName()) === target);
+      if (match) {
+        slicer.selectItems([match.getKey()]);
+      }
+    } catch (e) {
+      console.log(`Slicer "${slicer.getName()}" could not be updated: ${e}`);
+    }
+  });
+
+  // ---------- STEP 5: Aufräumen, Übersicht anzeigen, schützen ----------
+  overviewSheet.setVisibility(ExcelScript.SheetVisibility.visible);
+  overviewSheet.activate();
+  overviewSheet.getRange("A1").select();
+
+  if (HIDE_RAW_SHEET) {
+    rdSheet.setVisibility(ExcelScript.SheetVisibility.hidden);
+  }
+
+  if (!protection.getProtected()) {
+    protection.protect(PASSWORD);
+  }
+
+  console.log(`${bank}: ${remainingRows} Zeilen behalten, Stichtag ${stichtag}`);
+
+  return {
+    stichtag: stichtag,
+    bank: bank,
+    zeilen: remainingRows,
+  };
+}
+
+/** Vergleichswert: getrimmt, Kleinbuchstaben, Mehrfach-Leerzeichen zusammengefasst */
+function norm(value: string | number | boolean): string {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Stichtag als TT.MM.JJJJ – funktioniert für Excel-Datumszahlen und Text */
+function formatStichtag(value: string | number | boolean): string {
+  if (typeof value === "number") {
+    // Excel-Seriennummer -> Datum (25569 = 01.01.1970)
+    const d = new Date(Math.round((value - 25569) * 86400 * 1000));
+    const dd = ("0" + d.getUTCDate()).slice(-2);
+    const mm = ("0" + (d.getUTCMonth() + 1)).slice(-2);
+    return `${dd}.${mm}.${d.getUTCFullYear()}`;
+  }
+  return String(value ?? "").trim();
+}
