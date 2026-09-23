@@ -1,0 +1,265 @@
+enum Bank {
+  W = "VOLKSBANK WIEN AG",
+  V = "Volksbank Vorarlberg e. Gen.",
+  T = "Volksbank Tirol AG",
+  ST = "Volksbank Steiermark AG",
+  S = "Volksbank Salzburg eG",
+  OO = "Volksbank Oberösterreich AG",
+  NOE = "Volksbank Niederösterreich AG",
+  K = "Volksbank Kärnten eG",
+  APO = "Österreichische Ärzte- und Apothekerbank AG",
+}
+
+/**
+ * Automates the creation of a bank-specific Detailanalyse 12-MSV workbook.
+ *
+ * The script:
+ * - keeps only the selected bank in the raw data sheet "RD",
+ * - refreshes all data connections / pivot tables / pivot charts,
+ * - expands the selected bank on the "Übersicht" pivot table,
+ * - selects the selected bank in the "Vermittlername" slicer on "Übersicht",
+ * - tries to format category axis labels on the chart tabs,
+ * - skips chart formatting if the target tab is a chart sheet,
+ * - deletes the raw data sheet "RD",
+ * - activates the "Übersicht" sheet.
+ *
+ * @param workbook The current workbook.
+ * @param bankKey Bank key. Valid values: [W, V, T, ST, S, OO, NOE, K, APO].
+ *
+ * @throws Error if the bankKey is invalid or required sheets/tables are missing.
+ */
+function main(
+  workbook: ExcelScript.Workbook,
+  bankKey: string
+): { bank: string } {
+  const bank = Bank[bankKey.toUpperCase() as keyof typeof Bank];
+
+  if (!bank) {
+    throw new Error(
+      `Invalid bank key: ${bankKey}.\nValid values are: [W, V, T, ST, S, OO, NOE, K, APO]`
+    );
+  }
+
+  // STEP 0: Activate "Übersicht" early.
+  // This avoids issues when deleting or hiding the active sheet later.
+  const overviewSheet = workbook.getWorksheet("Übersicht");
+
+  if (!overviewSheet) {
+    throw new Error(`Could not find worksheet "Übersicht".`);
+  }
+
+  overviewSheet.setVisibility(ExcelScript.SheetVisibility.visible);
+  overviewSheet.activate();
+
+  // STEP 1: Get raw data sheet "RD".
+  const rawSheet = workbook.getWorksheet("RD");
+
+  if (!rawSheet) {
+    throw new Error(`Could not find worksheet "RD".`);
+  }
+
+  const tables = rawSheet.getTables();
+
+  if (tables.length === 0) {
+    throw new Error(`Could not find a table on worksheet "RD".`);
+  }
+
+  const table = tables[0];
+
+  // STEP 2: Filter all banks except the selected bank.
+  const banks = Object.values(Bank);
+  const filteredBanks = banks.filter(b => b !== bank);
+
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .applyValuesFilter(filteredBanks);
+
+  // STEP 3: Delete all visible filtered rows, i.e. all non-selected banks.
+  // This follows the same logic as in the IF1/RLZF/Sparplan scripts:
+  // filter unwanted banks -> delete visible data rows -> selected bank remains.
+  rawSheet
+    .getRange("2:2")
+    .getExtendedRange(ExcelScript.KeyboardDirection.down)
+    .delete(ExcelScript.DeleteShiftDirection.up);
+
+  // STEP 4: Clear filter so the remaining selected bank is visible.
+  table
+    .getColumnByName("Vermittlername")
+    .getFilter()
+    .clear();
+
+  // STEP 5: Refresh all data connections / pivots / charts.
+  // The pivot charts on d_Kundensicht, d_Filialsicht and d_V-Vormonat
+  // are based on the pivots and update automatically.
+  workbook.refreshAllDataConnections();
+  workbook.getPivotTables().forEach(pivotTable => pivotTable.refresh());
+
+  // STEP 6: Expand selected bank in the "Übersicht" PivotTable.
+  expandBankOnOverviewPivot(workbook, bank);
+
+  // STEP 7: Select the bank in the "Vermittlername" slicer, reset all other slicers (e.g. Region).
+  selectBankInSlicers(workbook, bank);
+
+  // STEP 8: Try to format X-axis/category labels on the chart tabs.
+  // If the tabs are chart sheets, they will be skipped without breaking the script.
+  setChartCategoryAxisFontSizeSafe(workbook, "d_Kundensicht", 8);
+  setChartCategoryAxisFontSizeSafe(workbook, "d_Filialsicht", 8);
+  setChartCategoryAxisFontSizeSafe(workbook, "d_V-Vormonat", 8);
+
+  // STEP 9: Delete raw data sheet "RD" after refresh.
+  const rdSheetAfterRefresh = workbook.getWorksheet("RD");
+
+  if (rdSheetAfterRefresh) {
+    rdSheetAfterRefresh.delete();
+  }
+
+  // STEP 10: Activate "Übersicht" as final sheet.
+  // Note: In Power Automate this is best effort and may not always be persisted as start sheet.
+  overviewSheet.setVisibility(ExcelScript.SheetVisibility.visible);
+  overviewSheet.activate();
+
+  return {
+    bank: bank
+  };
+}
+
+/**
+ * Expands the selected bank item in PivotTables on worksheet "Übersicht".
+ *
+ * This is intended to show the next hierarchy level, i.e. Region,
+ * under the selected Vermittlername.
+ */
+function expandBankOnOverviewPivot(
+  workbook: ExcelScript.Workbook,
+  bankName: string
+) {
+  const sheet = workbook.getWorksheet("Übersicht");
+
+  if (!sheet) {
+    throw new Error(`Could not find worksheet "Übersicht".`);
+  }
+
+  const pivotTables = sheet.getPivotTables();
+
+  if (pivotTables.length === 0) {
+    throw new Error(`Could not find a PivotTable on worksheet "Übersicht".`);
+  }
+
+  pivotTables.forEach(pivotTable => {
+    try {
+      pivotTable.refresh();
+
+      const hierarchy = pivotTable.getHierarchy("Vermittlername");
+      const fields = hierarchy.getFields();
+
+      if (fields.length === 0) {
+        return;
+      }
+
+      const field = fields[0];
+      const items = field.getItems();
+
+      items.forEach(item => {
+        if (item.getName() === bankName) {
+          item.setIsExpanded(true);
+        }
+      });
+    } catch (error) {
+      console.log(
+        `Could not expand bank "${bankName}" in PivotTable "${pivotTable.getName()}".`
+      );
+    }
+  });
+}
+
+/**
+ * Selects the selected bank in the "Vermittlername" slicer on "Übersicht"
+ * and resets all other slicers (e.g. "Region").
+ *
+ * The Vermittlername slicer is recognized by containing the bank name as an item,
+ * so the slicer's internal name does not matter.
+ */
+function selectBankInSlicers(
+  workbook: ExcelScript.Workbook,
+  bankName: string
+) {
+  workbook.getSlicers().forEach(slicer => {
+    try {
+      slicer.clearFilters();
+
+      const bankItem = slicer
+        .getSlicerItems()
+        .find(item => item.getName() === bankName);
+
+      if (bankItem) {
+        slicer.selectItems([bankItem.getKey()]);
+      }
+    } catch (error) {
+      console.log(`Could not update slicer "${slicer.getName()}".`);
+    }
+  });
+}
+
+/**
+ * Safely tries to set the category axis font size for all embedded charts
+ * on a normal worksheet.
+ *
+ * If the target tab is a chart sheet, workbook.getWorksheet(sheetName)
+ * throws an error. In that case the formatting is skipped.
+ */
+function setChartCategoryAxisFontSizeSafe(
+  workbook: ExcelScript.Workbook,
+  sheetName: string,
+  fontSize: number
+) {
+  let sheet: ExcelScript.Worksheet;
+
+  try {
+    sheet = workbook.getWorksheet(sheetName);
+  } catch (error) {
+    console.log(
+      `Tab "${sheetName}" could not be accessed as a normal worksheet. It may be a chart sheet. Axis formatting skipped.`
+    );
+    return;
+  }
+
+  if (!sheet) {
+    console.log(`Worksheet "${sheetName}" not found. Axis formatting skipped.`);
+    return;
+  }
+
+  const charts = sheet.getCharts();
+
+  if (charts.length === 0) {
+    console.log(`No embedded charts found on worksheet "${sheetName}". Axis formatting skipped.`);
+    return;
+  }
+
+  charts.forEach(chart => {
+    try {
+      const categoryAxis = chart.getAxes().getCategoryAxis();
+
+      if (categoryAxis) {
+        categoryAxis
+          .getFormat()
+          .getFont()
+          .setSize(fontSize);
+      }
+
+      // Optional: also reduce the value axis labels in case Excel treats the visible labels differently.
+      const valueAxis = chart.getAxes().getValueAxis();
+
+      if (valueAxis) {
+        valueAxis
+          .getFormat()
+          .getFont()
+          .setSize(fontSize);
+      }
+    } catch (error) {
+      console.log(
+        `Could not set axis font size on chart "${chart.getName()}" in worksheet "${sheetName}".`
+      );
+    }
+  });
+}
