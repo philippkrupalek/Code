@@ -1,0 +1,245 @@
+/**
+ * Wiederveranlagungsreporting – Aufteilung pro Bank (Office Script)
+ *
+ * Was das Skript macht:
+ *  1. Löscht in der Tabelle im Blatt "rd" alle Zeilen, die nicht zur gewählten Bank gehören.
+ *  2. Löscht in der Tabelle im Blatt "Zuordnung" ebenfalls die Zeilen der anderen Banken.
+ *  3. Setzt die Bankauswahl auf die gewählte Bank (Dropdown enthält danach nur noch diese Bank).
+ *  4. Setzt die Regionsauswahl auf "Alle Regionen" (Regionen bleiben weiter filterbar).
+ *  5. Setzt die Filialauswahl (z. B. "Filialpotenziale", "WVG Details") auf die erste Filiale der Bank.
+ *
+ * Die Auswahlfelder werden über ihre Beschriftung gefunden ("Bankauswahl", "Regionsauswahl",
+ * "Filialauswahl"), nicht über feste Zelladressen. Layoutänderungen sind damit kein Problem,
+ * solange die Beschriftungen und die Struktur der Rohdaten gleich bleiben.
+ *
+ * ACHTUNG: Die Zeilen werden endgültig gelöscht, Strg + Z funktioniert danach nicht.
+ * Das Skript nur auf einer KOPIE der Datei ausführen!
+ *
+ * Eingabe "bank", z. B.: Wien, Vorarlberg, Tirol, Steiermark, Salzburg,
+ * Oberösterreich (oder OÖ), Niederösterreich (oder NÖ), Kärnten, Apotheker (oder ÄA)
+ */
+
+// ---------------- Einstellungen ----------------
+const RD_BLATT = "rd";
+const RD_BANKSPALTE = "Verm Name";
+const ZUORDNUNG_BLATT = "Zuordnung";
+const ZUORDNUNG_SPALTE = "Kombi";
+const ZUORDNUNG_BEREINIGEN = true;
+const ALLE_REGIONEN = "Alle Regionen";
+
+interface Bank {
+  anzeige: string;    // Name wie in der Bankauswahl im Dashboard
+  stichwort: string;  // Teil des Banknamens in den Rohdaten (Kleinbuchstaben)
+  eingaben: string[]; // akzeptierte Eingaben (Kleinbuchstaben)
+}
+
+const BANKEN: Bank[] = [
+  { anzeige: "VB Wien", stichwort: "wien", eingaben: ["wien"] },
+  { anzeige: "VB Vorarlberg", stichwort: "vorarlberg", eingaben: ["vorarlberg", "vlbg"] },
+  { anzeige: "VB Tirol", stichwort: "tirol", eingaben: ["tirol"] },
+  { anzeige: "VB Steiermark", stichwort: "steiermark", eingaben: ["steiermark", "stmk"] },
+  { anzeige: "VB Salzburg", stichwort: "salzburg", eingaben: ["salzburg", "sbg"] },
+  { anzeige: "VB Oberösterreich", stichwort: "oberösterreich", eingaben: ["oberösterreich", "oberoesterreich", "oö", "ooe"] },
+  { anzeige: "VB Niederösterreich", stichwort: "niederösterreich", eingaben: ["niederösterreich", "niederoesterreich", "nö", "noe"] },
+  { anzeige: "VB Kärnten", stichwort: "kärnten", eingaben: ["kärnten", "kaernten", "ktn"] },
+  { anzeige: "Ärzte-/Apothekerbank", stichwort: "apotheker", eingaben: ["apotheker", "ärzte", "aerzte", "apo", "äa"] },
+];
+
+// ---------------- Hauptprogramm ----------------
+function main(workbook: ExcelScript.Workbook, bank: string) {
+  const gewaehlt = findeBank(bank);
+  console.log(`Gewählte Bank: ${gewaehlt.anzeige}`);
+
+  // 1. Rohdaten bereinigen
+  const rd = workbook.getWorksheet(RD_BLATT);
+  if (!rd) {
+    throw new Error(`Blatt "${RD_BLATT}" nicht gefunden.`);
+  }
+  const rdTabellen = rd.getTables();
+  if (rdTabellen.length === 0) {
+    throw new Error(`Im Blatt "${RD_BLATT}" wurde keine Tabelle gefunden.`);
+  }
+  const rdErgebnis = andereBankenLoeschen(rdTabellen[0], RD_BANKSPALTE, gewaehlt.stichwort, true);
+  console.log(`rd: ${rdErgebnis[0]} Zeilen behalten, ${rdErgebnis[1]} Zeilen gelöscht.`);
+
+  // 2. Zuordnung bereinigen (enthält sonst Daten der anderen Banken)
+  if (ZUORDNUNG_BEREINIGEN) {
+    const zuordnung = workbook.getWorksheet(ZUORDNUNG_BLATT);
+    if (zuordnung && zuordnung.getTables().length > 0) {
+      const zErgebnis = andereBankenLoeschen(zuordnung.getTables()[0], ZUORDNUNG_SPALTE, gewaehlt.stichwort, false);
+      console.log(`Zuordnung: ${zErgebnis[0]} Zeilen behalten, ${zErgebnis[1]} Zeilen gelöscht.`);
+    }
+  }
+
+  // 3. Bankauswahl: nur noch die gewählte Bank
+  const bankZellen = findeAuswahlZellen(workbook, "Bankauswahl");
+  if (bankZellen.length === 0) {
+    console.log('Hinweis: Kein Feld "Bankauswahl" gefunden.');
+  }
+  bankZellen.forEach(zelle => {
+    const dv = zelle.getDataValidation();
+    dv.clear();
+    dv.setRule({ list: { inCellDropDown: true, source: gewaehlt.anzeige } });
+    zelle.setValue(gewaehlt.anzeige);
+  });
+
+  // 4. Regionsauswahl zurücksetzen
+  findeAuswahlZellen(workbook, "Regionsauswahl").forEach(zelle => zelle.setValue(ALLE_REGIONEN));
+
+  // Pivots aktualisieren und neu berechnen
+  workbook.refreshAllPivotTables();
+  workbook.getApplication().calculate(ExcelScript.CalculationType.full);
+
+  // 5. Filialauswahl auf die erste Filiale der Bank setzen
+  workbook.getWorksheets().forEach(blatt => {
+    if (!istPruefbar(blatt)) {
+      return;
+    }
+    const zelle = findeAuswahlZelleImBlatt(blatt, "Filialauswahl");
+    if (!zelle) {
+      return;
+    }
+    const filiale = ersteFiliale(blatt);
+    if (filiale) {
+      zelle.setValue(filiale);
+      console.log(`${blatt.getName()}: Filialauswahl = ${filiale}`);
+    } else {
+      console.log(`Hinweis: In "${blatt.getName()}" konnte keine Filiale ermittelt werden.`);
+    }
+  });
+
+  workbook.getApplication().calculate(ExcelScript.CalculationType.full);
+  console.log("Fertig.");
+}
+
+// ---------------- Hilfsfunktionen ----------------
+
+/** Erkennt die Bank aus der Eingabe (z. B. "Wien", "VB Wien", "OÖ"). */
+function findeBank(eingabe: string): Bank {
+  const e = (eingabe || "").trim().toLowerCase();
+  const treffer = BANKEN.filter(b =>
+    b.anzeige.toLowerCase() === e || b.eingaben.some(a => e === a || e.includes(a))
+  );
+  if (e === "" || treffer.length !== 1) {
+    throw new Error(
+      `Bank "${eingabe}" nicht eindeutig erkannt. Mögliche Eingaben: ${BANKEN.map(b => b.anzeige).join(", ")}`
+    );
+  }
+  return treffer[0];
+}
+
+/**
+ * Löscht alle Tabellenzeilen, deren Wert in der angegebenen Spalte das Stichwort nicht enthält.
+ * Gelöscht wird blockweise von unten nach oben, Formeln in der Tabelle bleiben erhalten.
+ * Rückgabe: [behaltene Zeilen, gelöschte Zeilen]
+ */
+function andereBankenLoeschen(
+  tabelle: ExcelScript.Table,
+  spaltenName: string,
+  stichwort: string,
+  pflicht: boolean
+): number[] {
+  tabelle.clearFilters();
+  const spalte = tabelle.getColumnByName(spaltenName) || tabelle.getColumns()[0];
+  const werte = spalte.getRangeBetweenHeaderAndTotal().getValues();
+  const behalten = werte.map(z => String(z[0]).toLowerCase().includes(stichwort));
+  const anzahlBehalten = behalten.filter(x => x).length;
+
+  // Sicherheitsstopp: nichts löschen, wenn die Bank gar nicht vorkommt
+  if (anzahlBehalten === 0) {
+    if (pflicht) {
+      throw new Error(`In der Tabelle "${tabelle.getName()}" wurden keine Zeilen für "${stichwort}" gefunden. Es wurde nichts gelöscht.`);
+    }
+    return [0, 0];
+  }
+
+  let geloescht = 0;
+  let i = behalten.length - 1;
+  while (i >= 0) {
+    if (behalten[i]) {
+      i--;
+      continue;
+    }
+    const ende = i;
+    while (i >= 0 && !behalten[i]) {
+      i--;
+    }
+    const start = i + 1;
+    const anzahl = ende - start + 1;
+    tabelle.deleteRowsAt(start, anzahl);
+    geloescht += anzahl;
+  }
+  return [anzahlBehalten, geloescht];
+}
+
+/** Nur sichtbare Blätter durchsuchen, Rohdaten und Zuordnung auslassen. */
+function istPruefbar(blatt: ExcelScript.Worksheet): boolean {
+  const name = blatt.getName();
+  return (
+    blatt.getVisibility() === ExcelScript.SheetVisibility.visible &&
+    name !== RD_BLATT &&
+    name !== ZUORDNUNG_BLATT
+  );
+}
+
+/** Sucht in allen sichtbaren Blättern das Eingabefeld rechts neben einer Beschriftung. */
+function findeAuswahlZellen(workbook: ExcelScript.Workbook, beschriftung: string): ExcelScript.Range[] {
+  const zellen: ExcelScript.Range[] = [];
+  workbook.getWorksheets().forEach(blatt => {
+    if (!istPruefbar(blatt)) {
+      return;
+    }
+    const zelle = findeAuswahlZelleImBlatt(blatt, beschriftung);
+    if (zelle) {
+      zellen.push(zelle);
+    }
+  });
+  return zellen;
+}
+
+/** Findet die Beschriftung im Blatt und gibt die erste befüllte Zelle rechts daneben zurück. */
+function findeAuswahlZelleImBlatt(blatt: ExcelScript.Worksheet, beschriftung: string): ExcelScript.Range | undefined {
+  const bereich = blatt.getUsedRange();
+  if (!bereich) {
+    return undefined;
+  }
+  const werte = bereich.getValues();
+  for (let r = 0; r < werte.length; r++) {
+    for (let c = 0; c < werte[r].length; c++) {
+      if (String(werte[r][c]).trim() === beschriftung) {
+        for (let c2 = c + 1; c2 < werte[r].length; c2++) {
+          if (String(werte[r][c2]).trim() !== "") {
+            return bereich.getCell(r, c2);
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Liest die erste Zeile unter der Kopfzeile "Bank | Region | Filiale"
+ * und baut daraus den Text für die Filialauswahl: "Bank | Filiale | Region".
+ */
+function ersteFiliale(blatt: ExcelScript.Worksheet): string | undefined {
+  const bereich = blatt.getUsedRange();
+  if (!bereich) {
+    return undefined;
+  }
+  const werte = bereich.getValues();
+  for (let r = 0; r < werte.length - 1; r++) {
+    const kopf = werte[r].map(w => String(w).trim());
+    const iBank = kopf.indexOf("Bank");
+    const iRegion = kopf.indexOf("Region");
+    const iFiliale = kopf.indexOf("Filiale");
+    if (iBank >= 0 && iRegion >= 0 && iFiliale >= 0) {
+      const z = werte[r + 1].map(w => String(w).trim());
+      if (z[iBank] === "" || z[iFiliale] === "" || z[iBank].startsWith("#")) {
+        return undefined;
+      }
+      return `${z[iBank]} | ${z[iFiliale]} | ${z[iRegion]}`;
+    }
+  }
+  return undefined;
+}
